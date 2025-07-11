@@ -1,0 +1,263 @@
+// server/routes/productRoutes.js
+const express = require('express');
+const Product = require('../models/Product');
+
+const router = express.Router();
+
+/**
+ * @openapi
+ * /api/products:
+ *   get:
+ *     tags:
+ *       - Products
+ *     summary: Get all products
+ *     responses:
+ *       200:
+ *         description: List of products
+ *   post:
+ *     tags:
+ *       - Products
+ *     summary: Create a new product
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               fabric_type:
+ *                 type: string
+ *               price:
+ *                 type: number
+ *               quantity:
+ *                 type: number
+ *               supplier:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Product created
+ */
+router.post('/', async (req, res) => {
+  console.log('POST /api/products - Request received');
+  console.log('Request body:', req.body);
+  try {
+    const { name, fabric_type, price, quantity, supplier } = req.body;
+    if (!name || !fabric_type || !Number.isFinite(price) || !Number.isFinite(quantity) || !supplier) {
+      console.warn('POST /api/products - Validation failed');
+      return res.status(400).json({ message: 'Missing or invalid required fields' });
+    }
+    console.log('Creating new product with:', { name, fabric_type, price, quantity, supplier });
+    const newProduct = new Product({ name, fabric_type, price, quantity, supplier });
+    const savedProduct = await newProduct.save();
+    console.log('Product saved:', savedProduct);
+    res.status(201).json(savedProduct);
+  } catch (error) {
+    console.error('POST /api/products - Error saving product:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.get('/', async (_req, res) => {
+  console.log('GET /api/products - Fetching all products');
+  try {
+    const products = await Product.find();
+    console.log(`GET /api/products - Retrieved ${products.length} products`);
+    res.json(products);
+  } catch (error) {
+    console.error('GET /api/products - Error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+module.exports = router;
+
+// server/routes/salesRoutes.js
+const express = require('express');
+const Sale = require('../models/Sale');
+
+const router = express.Router();
+
+/**
+ * @openapi
+ * /api/sales:
+ *   get:
+ *     tags:
+ *       - Sales
+ *     summary: Get all sales
+ *     responses:
+ *       200:
+ *         description: List of sales
+ *   post:
+ *     tags:
+ *       - Sales
+ *     summary: Record a new sale
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               product:
+ *                 type: string
+ *               quantity_sold:
+ *                 type: number
+ *               unit_price:
+ *                 type: number
+ *     responses:
+ *       201:
+ *         description: Sale recorded
+ */
+router.post('/', async (req, res) => {
+  console.log('POST /api/sales - Request received');
+  console.log('Request body:', req.body);
+  try {
+    const { product, quantity_sold, unit_price } = req.body;
+    if (!product || !Number.isFinite(quantity_sold) || !Number.isFinite(unit_price)) {
+      console.warn('POST /api/sales - Validation failed');
+      return res.status(400).json({ message: 'Missing or invalid required fields' });
+    }
+    const total_amount = unit_price * quantity_sold;
+    console.log('Creating new sale with:', { product, quantity_sold, unit_price, total_amount });
+    const newSale = new Sale({ product, quantity_sold, unit_price, total_amount });
+    const savedSale = await newSale.save();
+    console.log('Sale saved:', savedSale);
+    res.status(201).json(savedSale);
+  } catch (error) {
+    console.error('POST /api/sales - Error saving sale:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.get('/', async (_req, res) => {
+  console.log('GET /api/sales - Fetching all sales');
+  try {
+    const sales = await Sale.find().populate('product');
+    console.log(`GET /api/sales - Retrieved ${sales.length} sales`);
+    res.json(sales);
+  } catch (error) {
+    console.error('GET /api/sales - Error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+module.exports = router;
+
+// server/routes/userRoutes.js
+const express = require('express');
+const User = require('../models/User');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+
+const router = express.Router();
+
+/**
+ * @openapi
+ * /api/users/register:
+ *   post:
+ *     tags:
+ *       - Users
+ *     summary: Register a new user
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *               role:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: User registered
+ *
+ * /api/users/login:
+ *   post:
+ *     tags:
+ *       - Users
+ *     summary: User login
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Login successful
+ */
+router.post('/register', async (req, res) => {
+  console.log('POST /api/users/register - Request received');
+  console.log('Request body:', req.body);
+  try {
+    const { name, email, password, role } = req.body;
+    if (!name || !email || !password) {
+      console.warn('POST /api/users/register - Validation failed');
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+    console.log('Checking for existing user:', email);
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      console.warn('Email already registered:', email);
+      return res.status(400).json({ message: 'Email already exists' });
+    }
+    const hashedPassword = await bcrypt.hash(password, 10);
+    console.log('Password hashed');
+    const newUser = new User({ name, email, password: hashedPassword, role });
+    const savedUser = await newUser.save();
+    console.log('User saved:', savedUser.email);
+    res.status(201).json({ id: savedUser._id, name: savedUser.name, email: savedUser.email, role: savedUser.role });
+  } catch (error) {
+    console.error('POST /api/users/register - Error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.post('/login', async (req, res) => {
+  console.log('POST /api/users/login - Request received');
+  console.log('Login request for email:', req.body.email);
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      console.warn('POST /api/users/login - Missing email or password');
+      return res.status(400).json({ message: 'Missing email or password' });
+    }
+    console.log('Searching for user:', email);
+    const user = await User.findOne({ email });
+    if (!user) {
+      console.warn('User not found:', email);
+      return res.status(404).json({ message: 'User not found' });
+    }
+    const isValid = await bcrypt.compare(password, user.password);
+    if (!isValid) {
+      console.warn('Invalid credentials for:', email);
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      console.error('JWT secret is not defined');
+      return res.status(500).json({ message: 'Missing JWT secret' });
+    }
+    const token = jwt.sign({ id: user._id, role: user.role }, jwtSecret, { expiresIn: '1h' });
+    console.log('Login successful, token generated');
+    res.json({ token });
+  } catch (error) {
+    console.error('POST /api/users/login - Error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+module.exports = router;
